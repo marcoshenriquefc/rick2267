@@ -24,10 +24,12 @@ jobs:
           curl --fail --location --retry 4 "$asset_url" --output llama-bin.tar.gz
           mkdir -p llama-extracted
           tar -xzf llama-bin.tar.gz -C llama-extracted
-          find llama-extracted -type f \( -name 'llama-cli' -o -name 'llama-server' \) -exec cp {} revision-package/bin/ \;
-          find llama-extracted -type f -name '*.so*' -exec cp {} revision-package/bin/ \;
+          cli_path=$(find llama-extracted -type f -name 'llama-cli' | head -n 1)
+          test -n "$cli_path"
+          bin_dir=$(dirname "$cli_path")
+          cp -a "$bin_dir"/. revision-package/bin/
           chmod +x revision-package/bin/llama-cli revision-package/bin/llama-server
-          revision-package/bin/llama-cli --version
+          LD_LIBRARY_PATH="$PWD/revision-package/bin" revision-package/bin/llama-cli --version
 
       - name: Download Portuguese-capable instruction model
         shell: bash
