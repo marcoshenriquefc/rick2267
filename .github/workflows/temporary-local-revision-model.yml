@@ -74,17 +74,59 @@ jobs:
           print(selected_repo, selected, target.stat().st_size)
           PY
 
-      - name: Package revision tools
+      - name: Package and split revision tools
+        shell: bash
         run: |
+          set -euo pipefail
           tar -czf local-revision-model.tar.gz revision-package
-          sha256sum local-revision-model.tar.gz
-          ls -lh local-revision-model.tar.gz revision-package/model/revision-model.gguf
+          sha256sum local-revision-model.tar.gz | tee local-revision-model.sha256
+          split -b 350M local-revision-model.tar.gz local-revision-model.part-
+          ls -lh local-revision-model.tar.gz local-revision-model.part-* revision-package/model/revision-model.gguf
+          test -f local-revision-model.part-aa
+          test -f local-revision-model.part-ab
+          test -f local-revision-model.part-ac
+          test -f local-revision-model.part-ad
 
-      - name: Upload revision package
+      - name: Upload package checksum
         uses: actions/upload-artifact@v4
         with:
-          name: local-revision-model
-          path: local-revision-model.tar.gz
+          name: local-revision-model-checksum
+          path: local-revision-model.sha256
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload package part aa
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-revision-model-part-aa
+          path: local-revision-model.part-aa
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+      - name: Upload package part ab
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-revision-model-part-ab
+          path: local-revision-model.part-ab
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+      - name: Upload package part ac
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-revision-model-part-ac
+          path: local-revision-model.part-ac
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+      - name: Upload package part ad
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-revision-model-part-ad
+          path: local-revision-model.part-ad
           if-no-files-found: error
           compression-level: 0
           retention-days: 1
