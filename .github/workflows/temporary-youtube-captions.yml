@@ -1,0 +1,79 @@
+name: Temporary YouTube Captions
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  fetch-captions:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install caption tools
+        run: python -m pip install --disable-pip-version-check yt-dlp youtube-transcript-api
+
+      - name: Fetch available captions
+        shell: bash
+        run: |
+          set -u
+          mkdir -p caption-output
+          URL='https://www.youtube.com/watch?v=Ire0vpPan28'
+          yt-dlp --list-subs "$URL" | tee caption-output/subtitle-list.txt || true
+          yt-dlp \
+            --skip-download \
+            --write-subs \
+            --write-auto-subs \
+            --sub-langs 'pt.*,pt,en.*' \
+            --sub-format 'vtt' \
+            --output 'caption-output/video.%(ext)s' \
+            "$URL" || true
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from youtube_transcript_api import YouTubeTranscriptApi
+
+          out = Path('caption-output')
+          try:
+              transcript = YouTubeTranscriptApi().fetch('Ire0vpPan28', languages=['pt-BR', 'pt', 'en'])
+              rows = [
+                  {'text': item.text, 'start': float(item.start), 'duration': float(item.duration)}
+                  for item in transcript
+              ]
+              (out / 'transcript-api.json').write_text(
+                  json.dumps(rows, ensure_ascii=False, indent=2), encoding='utf-8'
+              )
+
+              def ts(seconds: float) -> str:
+                  ms = max(0, int(round(seconds * 1000)))
+                  h, rem = divmod(ms, 3600000)
+                  m, rem = divmod(rem, 60000)
+                  s, milli = divmod(rem, 1000)
+                  return f'{h:02d}:{m:02d}:{s:02d}.{milli:03d}'
+
+              lines = ['WEBVTT', '']
+              for row in rows:
+                  lines.append(f"{ts(row['start'])} --> {ts(row['start'] + row['duration'])}")
+                  lines.append(row['text'])
+                  lines.append('')
+              (out / 'transcript-api.vtt').write_text('\n'.join(lines), encoding='utf-8')
+          except Exception as exc:
+              (out / 'transcript-api-error.txt').write_text(repr(exc), encoding='utf-8')
+          PY
+
+          find caption-output -maxdepth 1 -type f -printf '%f %s bytes\n' | sort | tee caption-output/files.txt
+          find caption-output -maxdepth 1 -type f \( -name '*.vtt' -o -name '*.json' \) | grep -q .
+
+      - name: Upload caption artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: youtube-captions
+          path: caption-output
+          if-no-files-found: error
+          retention-days: 1
