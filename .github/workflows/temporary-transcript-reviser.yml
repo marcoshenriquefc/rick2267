@@ -1,0 +1,65 @@
+name: Temporary Transcript Reviser
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  package-reviser:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download compact Portuguese-capable instruction model
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check huggingface_hub
+          python - <<'PY'
+          from pathlib import Path
+          from huggingface_hub import hf_hub_download, list_repo_files
+
+          candidates = [
+              'Qwen/Qwen2.5-0.5B-Instruct-GGUF',
+              'bartowski/Qwen2.5-0.5B-Instruct-GGUF',
+          ]
+          errors = []
+          for repo in candidates:
+              try:
+                  files = list_repo_files(repo)
+                  matches = [
+                      f for f in files
+                      if f.lower().endswith('.gguf')
+                      and 'q4_k_m' in f.lower()
+                      and 'mmproj' not in f.lower()
+                      and '-00001-of-' not in f.lower()
+                  ]
+                  if not matches:
+                      continue
+                  filename = sorted(matches, key=len)[0]
+                  source = Path(hf_hub_download(repo_id=repo, filename=filename))
+                  target = Path('transcript-reviser.gguf')
+                  target.write_bytes(source.read_bytes())
+                  Path('source.txt').write_text(f'{repo}\n{filename}\n', encoding='utf-8')
+                  print(repo, filename, target.stat().st_size)
+                  break
+              except Exception as exc:
+                  errors.append(f'{repo}: {exc!r}')
+          else:
+              raise RuntimeError('No complete Q4_K_M model found. ' + ' | '.join(errors))
+          PY
+          test -s transcript-reviser.gguf
+          test $(stat -c %s transcript-reviser.gguf) -lt 500000000
+          sha256sum transcript-reviser.gguf | tee transcript-reviser.sha256
+
+      - name: Upload compact reviser model
+        uses: actions/upload-artifact@v4
+        with:
+          name: transcript-reviser-model
+          path: |
+            transcript-reviser.gguf
+            transcript-reviser.sha256
+            source.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
