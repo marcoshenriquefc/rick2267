@@ -1,0 +1,88 @@
+name: Temporary Local Revision Model
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  package-revision-model:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download current llama.cpp Linux binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p revision-package/bin revision-package/model
+          release_json=$(mktemp)
+          curl --fail --location --retry 4 \
+            'https://api.github.com/repos/ggml-org/llama.cpp/releases/latest' \
+            --output "$release_json"
+          asset_url=$(jq -r '.assets[] | select(.name | test("bin-ubuntu-x64\\.tar\\.gz$")) | .browser_download_url' "$release_json" | head -n 1)
+          test -n "$asset_url"
+          curl --fail --location --retry 4 "$asset_url" --output llama-bin.tar.gz
+          mkdir -p llama-extracted
+          tar -xzf llama-bin.tar.gz -C llama-extracted
+          find llama-extracted -type f \( -name 'llama-cli' -o -name 'llama-server' \) -exec cp {} revision-package/bin/ \;
+          find llama-extracted -type f -name '*.so*' -exec cp {} revision-package/bin/ \;
+          chmod +x revision-package/bin/llama-cli revision-package/bin/llama-server
+          revision-package/bin/llama-cli --version
+
+      - name: Download Portuguese-capable instruction model
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check huggingface_hub
+          python - <<'PY'
+          from pathlib import Path
+          from huggingface_hub import hf_hub_download, list_repo_files
+
+          candidates = [
+              'Qwen/Qwen2.5-1.5B-Instruct-GGUF',
+              'bartowski/Qwen2.5-1.5B-Instruct-GGUF',
+          ]
+          selected = None
+          selected_repo = None
+          errors = []
+          for repo in candidates:
+              try:
+                  files = list_repo_files(repo)
+                  matches = [
+                      f for f in files
+                      if f.lower().endswith('.gguf')
+                      and 'q4_k_m' in f.lower()
+                      and 'mmproj' not in f.lower()
+                  ]
+                  if matches:
+                      selected_repo = repo
+                      selected = sorted(matches, key=len)[0]
+                      break
+              except Exception as exc:
+                  errors.append(f'{repo}: {exc!r}')
+          if not selected_repo or not selected:
+              raise RuntimeError('No Q4_K_M model found. ' + ' | '.join(errors))
+
+          downloaded = hf_hub_download(repo_id=selected_repo, filename=selected)
+          target = Path('revision-package/model/revision-model.gguf')
+          target.write_bytes(Path(downloaded).read_bytes())
+          Path('revision-package/model/source.txt').write_text(
+              f'{selected_repo}\n{selected}\n', encoding='utf-8'
+          )
+          print(selected_repo, selected, target.stat().st_size)
+          PY
+
+      - name: Package revision tools
+        run: |
+          tar -czf local-revision-model.tar.gz revision-package
+          sha256sum local-revision-model.tar.gz
+          ls -lh local-revision-model.tar.gz revision-package/model/revision-model.gguf
+
+      - name: Upload revision package
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-revision-model
+          path: local-revision-model.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
