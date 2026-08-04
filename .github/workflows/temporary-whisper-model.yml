@@ -1,7 +1,7 @@
 name: Temporary Whisper Model
 
 on:
-  push:
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -14,15 +14,15 @@ jobs:
       - name: Download multilingual Whisper model
         run: |
           curl --fail --location --retry 4 --retry-delay 3 \
-            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny-q5_1.bin" \
-            --output ggml-tiny-q5_1.bin
-          test -s ggml-tiny-q5_1.bin
-          sha256sum ggml-tiny-q5_1.bin
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q5_1.bin" \
+            --output ggml-base-q5_1.bin
+          test -s ggml-base-q5_1.bin
+          sha256sum ggml-base-q5_1.bin
 
       - name: Upload model artifact
         uses: actions/upload-artifact@v4
         with:
-          name: whisper-model-tiny-q5_1
-          path: ggml-tiny-q5_1.bin
+          name: whisper-model-base-q5_1
+          path: ggml-base-q5_1.bin
           if-no-files-found: error
           retention-days: 1
