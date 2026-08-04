@@ -1,0 +1,27 @@
+name: Temporary Whisper Small Model
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  package-small-model:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download multilingual Whisper small model
+        run: |
+          curl --fail --location --retry 4 --retry-delay 3 \
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin" \
+            --output ggml-small-q5_1.bin
+          test -s ggml-small-q5_1.bin
+          sha256sum ggml-small-q5_1.bin
+
+      - name: Upload model artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: whisper-model-small-q5_1
+          path: ggml-small-q5_1.bin
+          if-no-files-found: error
+          retention-days: 1
